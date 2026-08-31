@@ -1,0 +1,31 @@
+name: 발행 이월 (수동 1회용 — 전일 미발행분을 오늘자로)
+on:
+  workflow_dispatch:
+    inputs:
+      from_dir:
+        description: '이월할 폴더 (예: posts/2026-07-28)'
+        required: true
+      to_dir:
+        description: '새 폴더 (예: posts/2026-07-29)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  shift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 이월
+        run: |
+          test -d "${{ github.event.inputs.from_dir }}"
+          test ! -d "${{ github.event.inputs.to_dir }}"
+          cp -r "${{ github.event.inputs.from_dir }}" "${{ github.event.inputs.to_dir }}"
+          rm -f "${{ github.event.inputs.to_dir }}/published.json"
+          printf '%s' "${{ github.event.inputs.to_dir }}" > .last_post_dir
+          git config user.name "mademoiselle-bot"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "이월: ${{ github.event.inputs.from_dir }} → ${{ github.event.inputs.to_dir }}"
+          git push

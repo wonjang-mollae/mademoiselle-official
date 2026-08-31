@@ -1,0 +1,96 @@
+name: 승인 게시 (화·금 10:07~17:07 — 승인 댓글 있어야만 발행)
+on:
+  schedule:
+    - cron: '7 1 * * 2,5'    # 화·금 10:07 KST (1차)
+    - cron: '43 1 * * 2,5'   # 화·금 10:43 KST (2차)
+    - cron: '13 2 * * 2,5'   # 화·금 11:13 KST (3차)
+    - cron: '43 3 * * 2,5'   # 화·금 12:43 KST (4차)
+    - cron: '7 5 * * 2,5'    # 화·금 14:07 KST (5차 — 오후 승인 대비)
+    - cron: '7 8 * * 2,5'    # 화·금 17:07 KST (6차 최종 — 미승인 시 안내 댓글)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+# 동시 실행 금지 — 중복 게시 방지 (여러 트리거가 겹쳐도 순차 실행)
+concurrency:
+  group: publish-run
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 승인 확인 후 게시
+        uses: actions/github-script@v7
+        env:
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            if (!fs.existsSync('.last_post_dir')) { core.info('발행 대기 콘텐츠 없음'); return; }
+            const dir = fs.readFileSync('.last_post_dir','utf8').trim();
+            // 오늘 생성분인지 확인
+            const today = new Date().toISOString().slice(0,10);
+            if (!dir.includes(today)) { core.info(`오늘 생성분 아님(${dir}) — 게시 안 함`); return; }
+            // 열려 있는 publish-queue 이슈 확인 (닫힘 = 이미 게시됨/거부됨)
+            const issues = await github.rest.issues.listForRepo({ ...context.repo, labels: 'publish-queue', state: 'open' });
+            if (!issues.data.length) { core.info('열린 발행 이슈 없음 — 이미 처리됨'); return; }
+            const queueIssue = issues.data[0];
+            const comments = await github.rest.issues.listComments({ ...context.repo, issue_number: queueIssue.number });
+            // 명시적 거부: stop / 거부
+            if (comments.data.some(c => /\bstop\b|거부/i.test(c.body))) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: queueIssue.number, body: '⛔ 거부 확인 — 게시하지 않습니다.' });
+              await github.rest.issues.update({ ...context.repo, issue_number: queueIssue.number, state: 'closed' });
+              return;
+            }
+            // ★ 승인 필수 모드 — 공식 계정: '승인' 계열 댓글이 있어야만 게시
+            const approved = comments.data.some(c => /승인|approve|배포|발행|\bgo\b|\bok\b/i.test(c.body));
+            if (!approved) {
+              // 최종 슬롯(17:07 KST = 08:07 UTC 이후)이면 미승인 안내 1회
+              const kstHour = (new Date().getUTCHours() + 9) % 24;
+              const alreadyNoted = comments.data.some(c => c.body.includes('오늘 승인이 없어'));
+              if (kstHour >= 17 && !alreadyNoted) {
+                await github.rest.issues.createComment({ ...context.repo, issue_number: queueIssue.number, body: '⏳ 오늘 승인이 없어 게시하지 않았습니다. 이슈는 열어둡니다 — 내일이라도 `승인` 댓글 후 Actions에서 publish를 수동 실행하면 게시할 수 있습니다. (단, 다음 생성일이 오면 새 콘텐츠가 우선됩니다)' });
+              }
+              core.info('승인 댓글 없음 — 게시 보류');
+              return;
+            }
+            // 승인 확인 — 게시 진행
+            const base = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/main/${dir}`;
+            let published = false;
+            try {
+              execSync(`IMG_BASE_URL="${base}" node publish_carousel.js "${dir}"`, { stdio: 'inherit', env: { ...process.env, IMG_BASE_URL: base } });
+              published = true;
+              // 릴스 게시 (있으면) — 실패해도 캐러셀 성공은 유지
+              let reelNote = '';
+              if (fs.existsSync(`${dir}/reel.mp4`)) {
+                try {
+                  execSync(`node publish_reel.js "${dir}"`, { stdio: 'inherit', env: { ...process.env, IMG_BASE_URL: base } });
+                  reelNote = ' + 릴스 게시 완료 🎬';
+                } catch (re) {
+                  reelNote = `\n⚠️ 릴스 게시는 실패 — 카드 게시는 성공. \`${re.message}\``;
+                }
+              }
+              // 게시 성공 후 이슈 정리 — 댓글/닫기 실패는 게시 실패로 취급하지 않음 (중복 게시 방지가 최우선이라 닫기부터)
+              try { await github.rest.issues.update({ ...context.repo, issue_number: queueIssue.number, state: 'closed' }); } catch (ce) { core.warning(`이슈 닫기 실패: ${ce.message}`); }
+              try { await github.rest.issues.createComment({ ...context.repo, issue_number: queueIssue.number, body: `✅ 승인 확인 — 인스타그램 게시 완료${reelNote}` }); } catch (ce) { core.warning(`완료 댓글 실패: ${ce.message}`); }
+            } catch (e) {
+              if (published) { core.warning(`게시는 성공했으나 후처리 오류: ${e.message}`); return; }
+              try { await github.rest.issues.createComment({ ...context.repo, issue_number: queueIssue.number, body: `❌ 게시 실패 — IG 토큰 등록/만료 여부를 확인하세요.\n\n\`${e.message}\`` }); } catch (ce) {}
+              throw e;
+            }
+      - name: 게시 결과(published.json) 커밋
+        if: success()
+        run: |
+          git config user.name "publish-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add posts/*/published.json 2>/dev/null || true
+          git diff --cached --quiet || { git commit -m "chore: 게시 결과 기록 (published.json)"; git push; }

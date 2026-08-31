@@ -1,0 +1,28 @@
+name: 주제 자동수집 (일요일 21:17 KST — 대기 큐 보충)
+on:
+  schedule:
+    - cron: '17 12 * * 0'   # 일요일 12:17 UTC = 21:17 KST — 대기 주제 6개 미만이면 6개 보충
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 주제 리서치 + 큐 보충 (Claude API 웹서치)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MIN_QUEUE: '8'
+          ADD_COUNT: '8'
+        run: node collect_topics.js
+      - name: 커밋
+        run: |
+          git config user.name "mademoiselle-bot"
+          git config user.email "actions@github.com"
+          git add topics.json
+          git diff --cached --quiet || { git commit -m "주제 자동수집: topics.json 보충"; git push; }

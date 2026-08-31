@@ -1,0 +1,38 @@
+name: 주제 자동 반영 (topic-request 이슈)
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: write
+  issues: write
+jobs:
+  apply:
+    if: contains(github.event.issue.labels.*.name, 'topic-request')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 이슈 파싱 후 topics.json 반영
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            const body = context.payload.issue.body || '';
+            const pick = k => (body.match(new RegExp(k + '\\s*[:：]\\s*(.+)')) || [])[1]?.trim();
+            const series = pick('시리즈'), topic = pick('주제'), note = pick('메모') || '';
+            if (!series || !topic || topic.includes('여기에 주제')) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number,
+                body: '⚠️ 형식 오류 — "시리즈:"와 "주제:" 줄을 채워주세요. 이슈를 수정 후 새로 등록해주세요.' });
+              return;
+            }
+            const topics = JSON.parse(fs.readFileSync('topics.json','utf8'));
+            const nums = topics.filter(t => t.series === series)
+              .map(t => parseInt((t.issueNo||'').replace('#',''))||0);
+            const issueNo = '#' + String(Math.max(0,...nums)+1).padStart(3,'0');
+            topics.push({ series, issueNo, topic, status: '대기', note: '대시보드 추가. ' + note });
+            fs.writeFileSync('topics.json', JSON.stringify(topics, null, 2));
+            execSync('git config user.name topic-bot && git config user.email actions@github.com');
+            execSync('git add topics.json && git commit -m "주제 추가: ' + series + ' ' + issueNo + '" && git push');
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number,
+              body: '✅ 주제 큐에 추가됨: ' + series + ' ' + issueNo + ' — ' + topic });
+            await github.rest.issues.update({ ...context.repo, issue_number: context.issue.number, state: 'closed' });
