@@ -1,0 +1,58 @@
+name: 반입 감지 (posts 푸시 → 포인터 갱신 + 승인 이슈)
+on:
+  push:
+    branches: [main]
+    paths: ['posts/**']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 최신 회차 확인 및 포인터·이슈 정리 (멱등)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            // 1) posts/ 최신 날짜 폴더
+            const dirs = fs.readdirSync('posts').filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+            if (!dirs.length) { core.info('posts 없음'); return; }
+            const latest = `posts/${dirs[dirs.length-1]}`;
+            // 2) 필수 파일 확인 (부분 푸시면 대기)
+            const need = ['card1.png','caption.txt'];
+            if (!need.every(f=>fs.existsSync(`${latest}/${f}`))) { core.info(`${latest} 불완전 — 대기`); return; }
+            // 3) 이미 게시된 회차면 종료
+            if (fs.existsSync(`${latest}/published.json`)) { core.info(`${latest} 이미 게시됨`); return; }
+            // 4) 포인터 갱신 (다르면)
+            const cur = fs.existsSync('.last_post_dir') ? fs.readFileSync('.last_post_dir','utf8').trim() : '';
+            if (cur !== latest) {
+              fs.writeFileSync('.last_post_dir', latest + '\n');
+              const { execSync } = require('child_process');
+              execSync('git config user.name "mademoiselle-bot" && git config user.email "actions@github.com"');
+              execSync(`git add .last_post_dir && git commit -m "반입 감지: ${latest} 포인터 갱신" && git push`);
+              core.info(`포인터 갱신 → ${latest}`);
+            }
+            // 5) 열린 publish-queue 이슈 없으면 승인 이슈 생성
+            const issues = await github.rest.issues.listForRepo({ ...context.repo, labels: 'publish-queue', state: 'open' });
+            if (issues.data.length) { core.info('승인 이슈 이미 열림 — 생성 생략'); return; }
+            let title = `[승인 대기] ${latest.replace('posts/','')} — 승인 댓글 후 발행`;
+            try {
+              const post = JSON.parse(fs.readFileSync(`${latest}/post.json`,'utf8'));
+              title = `[승인 대기] ${post.series} ${post.issueNo} — 승인 댓글 후 발행`;
+            } catch (e) {}
+            const base = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/main/${latest}`;
+            const cards = fs.readdirSync(latest).filter(f=>/^card\d+\.png$/.test(f)).sort();
+            const imgs = cards.map(c=>`![${c}](${base}/${c})`).join('\n');
+            const caption = fs.readFileSync(`${latest}/caption.txt`,'utf8');
+            const reel = fs.existsSync(`${latest}/reel.mp4`) ? `\n\n🎬 **릴스**: [reel.mp4 보기](${base}/reel.mp4)` : '';
+            await github.rest.issues.create({
+              ...context.repo,
+              title, labels: ['publish-queue'],
+              body: `**승인 후 발행** — 이 이슈에 \`승인\` 댓글을 남기면 다음 게시 슬롯(10:07 / 10:43 / 11:13 / 12:43 / 14:07 / 17:07 KST)에 게시됩니다. \`stop\` 또는 \`거부\` 댓글 시 게시 없이 종료됩니다. 승인이 없으면 게시하지 않습니다.\n\n(제작: 코덱스 반입분 — 자동 감지)\n\n${imgs}${reel}\n\n---\n**캡션**\n\`\`\`\n${caption}\n\`\`\``
+            });
+            core.info('승인 이슈 생성 완료');
