@@ -1,0 +1,28 @@
+name: 재렌더링 (교체 콘텐츠 반영 — 수동 실행 전용)
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  rerender:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 한글 폰트 + ffmpeg 설치
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk fonts-noto-cjk-extra ffmpeg
+      - name: 카드·릴스 재렌더링 (.last_post_dir 대상)
+        run: |
+          POST_DIR=$(cat .last_post_dir)
+          CHROME_BIN=$(which google-chrome) node make_cards.js "$POST_DIR/post.json" "$POST_DIR"
+          rm -f "$POST_DIR"/card*.html
+          CHROME_BIN=$(which google-chrome) node make_reel.js "$POST_DIR/post.json" "$POST_DIR"
+          rm -f "$POST_DIR"/frame*.png
+      - name: 커밋
+        run: |
+          git config user.name "mademoiselle-bot"
+          git config user.email "actions@github.com"
+          git add -A && git commit -m "재렌더링: $(cat .last_post_dir)" && git push
