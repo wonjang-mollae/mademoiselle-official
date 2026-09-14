@@ -16,6 +16,7 @@ const API = 'https://graph.instagram.com/v21.0';
 
   const statsPath = path.join(__dirname, 'stats.json');
   const stats = fs.existsSync(statsPath) ? JSON.parse(fs.readFileSync(statsPath, 'utf8')) : { snapshots: [] };
+  if (!Array.isArray(stats.snapshots)) stats.snapshots = [];   // 방어: 구 구조(daily 등)여도 실패하지 않음
   stats.snapshots.push({
     at: new Date().toISOString(),
     followers: acct.followers_count,
