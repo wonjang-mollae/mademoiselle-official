@@ -1,0 +1,97 @@
+name: 초기화 (미게시 콘텐츠 정리 — 1회용)
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 미게시 콘텐츠·포인터·큐 정리
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            const log = [];
+
+            // 1) 미게시 posts 폴더 삭제 (published.json 있는 회차는 보존)
+            if (fs.existsSync('posts')) {
+              for (const d of fs.readdirSync('posts')) {
+                const p = `posts/${d}`;
+                if (!fs.existsSync(`${p}/published.json`)) {
+                  fs.rmSync(p, { recursive: true, force: true });
+                  log.push(`삭제: ${p}`);
+                } else {
+                  log.push(`보존(게시완료): ${p}`);
+                }
+              }
+            }
+
+            // 2) 게시 포인터 초기화
+            if (fs.existsSync('.last_post_dir')) {
+              fs.rmSync('.last_post_dir');
+              log.push('삭제: .last_post_dir');
+            }
+
+            // 3) topics.json — 생성완료였던 회차를 다시 대기로
+            if (fs.existsSync('topics.json')) {
+              const t = JSON.parse(fs.readFileSync('topics.json', 'utf8'));
+              let n = 0;
+              for (const it of t) {
+                if (typeof it.status === 'string' && it.status.startsWith('생성완료')) {
+                  it.status = '대기'; n++;
+                }
+              }
+              if (n) {
+                fs.writeFileSync('topics.json', JSON.stringify(t, null, 2) + '\n');
+                log.push(`topics.json: ${n}건 대기로 복귀`);
+              }
+            }
+
+            // 4) 커밋
+            execSync('git config user.name "cleanup-bot" && git config user.email "actions@users.noreply.github.com"');
+            execSync('git add -A');
+            try {
+              execSync('git diff --cached --quiet');
+              log.push('변경 없음 — 커밋 생략');
+            } catch (e) {
+              execSync('git commit -m "초기화: 미게시 콘텐츠·포인터 정리, 주제 큐 복귀"');
+              execSync('git push');
+              log.push('커밋·푸시 완료');
+            }
+
+            // 5) 열린 이슈 정리 (안내 댓글 후 닫기)
+            const issues = await github.rest.issues.listForRepo({ ...context.repo, state: 'open' });
+            for (const is of issues.data) {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: is.number,
+                body: '🧹 대표 지시로 미게시 콘텐츠를 초기화했습니다. 이 회차는 폐기하고 코덱스가 HANDOVER.md 규격대로 새로 제작합니다. (파일은 git 이력에 보존됨)'
+              });
+              await github.rest.issues.update({ ...context.repo, issue_number: is.number, state: 'closed' });
+              log.push(`이슈 #${is.number} 닫음`);
+            }
+
+            // 6) 코덱스 초안 브랜치 삭제
+            for (const br of ['codex/designer-story-review-20260908', 'codex/instagram-api-connection']) {
+              try {
+                await github.rest.git.deleteRef({ ...context.repo, ref: `heads/${br}` });
+                log.push(`브랜치 삭제: ${br}`);
+              } catch (e) { log.push(`브랜치 없음/삭제실패: ${br}`); }
+            }
+
+            core.summary.addHeading('정리 결과').addList(log).write();
+            core.info(log.join('\n'));
+
+      - name: 이 워크플로 자체 제거 (1회용)
+        run: |
+          git config user.name "cleanup-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git pull --rebase
+          git rm -q .github/workflows/cleanup.yml
+          git commit -m "chore: 초기화 워크플로 제거 (1회용)"
+          git push
