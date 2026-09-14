@@ -31,12 +31,21 @@
 7. 정치·사회 이슈·밈 편승 금지
 8. 카드 본문에 특정 연·월 표기 금지 (현재형 프레이밍)
 
-## 발행 경로 (현행)
+## 발행 경로 (확정)
 - 저장소: github.com/wonjang-mollae/mademoiselle-official
-- 주제 큐: topics.json (STORY #002~#007 대기 중)
-- 완성 콘텐츠는 posts/<YYYY-MM-DD>/ 에 card1~5.png + caption.txt 형태로 반입
-- 반입(커밋)은 Claude 또는 대표가 수행 → '[승인 대기]' 이슈 → 대표 '승인' 댓글 → 화·금 슬롯 자동 게시
-- 제작 AI의 저장소 직접 반입(API 연결)은 구조 확인 중 — 확정 전까지 산출물은 대화로 전달
+- 주제 큐: topics.json — status가 "대기"인 항목 중 issueNo가 가장 빠른 것을 이번 회차로 쓴다
+- **제작 AI가 저장소에 직접 커밋한다** (2026-09-08 API 읽기·쓰기·바이너리 전송 검증 완료 — `API연결현황.md`)
+- 커밋 후 자동 흐름: `ingest.yml`이 포인터(.last_post_dir) 갱신 → '[승인 대기]' 이슈 자동 생성 → 대표 '승인' 댓글 → 화·금 게시 슬롯(10:07~17:07 KST)에 자동 발행 → Claude가 결과 보고
+- 제작 AI가 직접 건드리지 말 것: `.last_post_dir`, `published.json`, 승인 이슈 생성·댓글, `.github/workflows/` 전체
+
+## 매 회차 할 일 (제작 AI — 화·금 게시일 기준, 전일 또는 당일 오전까지)
+1. 이 파일과 `topics.json`을 raw URL로 읽어 최신 규격·다음 주제 확인
+2. 카드 5장(1080×1350 PNG) + `caption.txt` 제작 — 위 톤 지시·가드레일 준수
+3. `posts/<게시일 YYYY-MM-DD>/` 경로에 `card1.png`~`card5.png`, `caption.txt`, `post.json`(series·issueNo·cards·caption) 커밋
+   - **card1.png와 caption.txt가 모두 있어야** ingest가 동작한다 (부분 커밋 시 대기 상태로 남음)
+4. `topics.json`에서 이번 회차 주제의 status를 "생성완료(YYYY-MM-DD)"로 갱신
+5. 커밋 후 원격 재읽기로 반영 확인. 이미지 검증은 Git 또는 원본 바이트 다운로드로 (텍스트 조회 도구는 바이너리 디코딩 실패)
 
 ## 갱신 이력
 - 2026-09-08: 최초 작성 (역할 분담 확정 반영)
+- 2026-09-14: 직접 반입 확정 반영 + '매 회차 할 일' 신설. 배경 — 9/9·9/11 두 회차가 반입 없이 통째로 누락됨(제작 AI가 회차별 실행 지시를 받지 못한 상태였음). 이 문서의 '매 회차 할 일'이 곧 실행 지시다.
