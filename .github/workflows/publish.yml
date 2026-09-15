@@ -36,6 +36,9 @@ jobs:
             const { execSync } = require('child_process');
             if (!fs.existsSync('.last_post_dir')) { core.info('발행 대기 콘텐츠 없음'); return; }
             const dir = fs.readFileSync('.last_post_dir','utf8').trim();
+            // ★ 중복 게시 차단 (2026-09-15 사고 재발 방지) — 이미 게시된 회차면 이슈 상태와 무관하게 즉시 종료.
+            //    이슈 닫기가 실패해도(9/15 15:07 사례) 이 검사가 두 번째 게시를 막는다.
+            if (fs.existsSync(`${dir}/published.json`)) { core.info(`${dir} 이미 게시됨(published.json 존재) — 중복 게시 차단`); return; }
             // 오늘 생성분인지 확인
             const today = new Date().toISOString().slice(0,10);
             if (!dir.includes(today)) { core.info(`오늘 생성분 아님(${dir}) — 게시 안 함`); return; }
