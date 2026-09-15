@@ -1,12 +1,12 @@
-name: 승인 게시 (화·금 10:07~17:07 — 승인 댓글 있어야만 발행)
+name: 자동 게시 (화·금 10:07~17:07 — 반입되면 발행, stop/거부 댓글만 차단)
 on:
   schedule:
     - cron: '7 1 * * 2,5'    # 화·금 10:07 KST (1차)
     - cron: '43 1 * * 2,5'   # 화·금 10:43 KST (2차)
     - cron: '13 2 * * 2,5'   # 화·금 11:13 KST (3차)
     - cron: '43 3 * * 2,5'   # 화·금 12:43 KST (4차)
-    - cron: '7 5 * * 2,5'    # 화·금 14:07 KST (5차 — 오후 승인 대비)
-    - cron: '7 8 * * 2,5'    # 화·금 17:07 KST (6차 최종 — 미승인 시 안내 댓글)
+    - cron: '7 5 * * 2,5'    # 화·금 14:07 KST (5차 — 오후 반입 대비)
+    - cron: '7 8 * * 2,5'    # 화·금 17:07 KST (6차 최종)
   workflow_dispatch: {}
 
 permissions:
@@ -50,19 +50,9 @@ jobs:
               await github.rest.issues.update({ ...context.repo, issue_number: queueIssue.number, state: 'closed' });
               return;
             }
-            // ★ 승인 필수 모드 — 공식 계정: 댓글 중 한 줄이 정확히 승인/approve/go/ok 일 때만 게시
-            const approved = comments.data.some(c => /^\s*(승인|approve|go|ok)\s*[.!]*\s*$/im.test(c.body));
-            if (!approved) {
-              // 최종 슬롯(17:07 KST = 08:07 UTC 이후)이면 미승인 안내 1회
-              const kstHour = (new Date().getUTCHours() + 9) % 24;
-              const alreadyNoted = comments.data.some(c => c.body.includes('게시 슬롯이 모두 지났습니다'));
-              if (kstHour >= 17 && !alreadyNoted) {
-                await github.rest.issues.createComment({ ...context.repo, issue_number: queueIssue.number, body: '⏳ 오늘 게시 슬롯이 모두 지났습니다 (게시 안 됨). 이 회차를 다음 게시일에 내보내려면 Actions의 "발행 이월(carryover)" 워크플로로 폴더를 이월한 뒤 그날 이슈에서 처리하세요. 이 이슈는 열어둡니다.' });
-              }
-              core.info('승인 댓글 없음 — 게시 보류');
-              return;
-            }
-            // 승인 확인 — 게시 진행
+            // ★ 자동 게시 모드 (2026-09-15 대표 결정) — 승인 댓글 불필요.
+            //    위의 stop/거부 댓글만 게시를 막는다. 승인 필수로 되돌리려면 git 이력의 이전 버전 참조.
+            core.info('자동 게시 모드 — 승인 댓글 확인 생략, 게시 진행');
             const base = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/main/${dir}`;
             let published = false;
             try {
@@ -80,7 +70,7 @@ jobs:
               }
               // 게시 성공 후 이슈 정리 — 댓글/닫기 실패는 게시 실패로 취급하지 않음 (중복 게시 방지가 최우선이라 닫기부터)
               try { await github.rest.issues.update({ ...context.repo, issue_number: queueIssue.number, state: 'closed' }); } catch (ce) { core.warning(`이슈 닫기 실패: ${ce.message}`); }
-              try { await github.rest.issues.createComment({ ...context.repo, issue_number: queueIssue.number, body: `✅ 승인 확인 — 인스타그램 게시 완료${reelNote}` }); } catch (ce) { core.warning(`완료 댓글 실패: ${ce.message}`); }
+              try { await github.rest.issues.createComment({ ...context.repo, issue_number: queueIssue.number, body: `✅ 자동 게시 완료 — 인스타그램 게시됨${reelNote}` }); } catch (ce) { core.warning(`완료 댓글 실패: ${ce.message}`); }
             } catch (e) {
               if (published) { core.warning(`게시는 성공했으나 후처리 오류: ${e.message}`); return; }
               try { await github.rest.issues.createComment({ ...context.repo, issue_number: queueIssue.number, body: `❌ 게시 실패 — IG 토큰 등록/만료 여부를 확인하세요.\n\n\`${e.message}\`` }); } catch (ce) {}
