@@ -52,12 +52,36 @@ async function waitReady(containerId, tries = 20) {
 }
 
 (async () => {
+  // 사전 확인: 카드 URL이 실제로 서빙되는지 (푸시 직후 CDN 미전파 대비)
+  for (const card of cards) {
+    const url = `${IMG_BASE_URL}/${card}`;
+    let ok = false;
+    for (let i = 0; i < 6 && !ok; i++) {
+      try { ok = (await fetch(url, { method: 'HEAD' })).ok; } catch (e) {}
+      if (!ok) { console.log(`  ${card} 아직 서빙 안 됨 — 10초 후 재확인 (${i + 1}/6)`); await new Promise(r => setTimeout(r, 10000)); }
+    }
+    if (!ok) throw new Error(`${card} URL 접근 불가: ${url}`);
+  }
+
   console.log(`카드 ${cards.length}장 컨테이너 생성 중...`);
   const children = [];
+  // 2026-09-22 STORY #008: 푸시 2분 뒤 card5 fetch 실패(9004/2207052, CDN 전파 지연) → 재시도 도입
+  const isFetchErr = (e) => /"code":9004|"error_subcode":2207052|fetch failed|ECONNRESET|ETIMEDOUT/.test(e.message);
   for (const card of cards) {
-    const { id } = await api(`${IG_USER_ID}/media`, {
-      image_url: `${IMG_BASE_URL}/${card}`, is_carousel_item: 'true',
-    });
+    let id;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        ({ id } = await api(`${IG_USER_ID}/media`, {
+          image_url: `${IMG_BASE_URL}/${card}`, is_carousel_item: 'true',
+        }));
+        break;
+      } catch (e) {
+        if (attempt >= 4 || !isFetchErr(e)) throw e;
+        const wait = 20000 * attempt;
+        console.warn(`  ${card} 이미지 가져오기 실패(시도 ${attempt}/4) — ${wait / 1000}초 후 재시도: ${e.message.slice(0, 120)}`);
+        await new Promise(r => setTimeout(r, wait));
+      }
+    }
     children.push(id);
     console.log(`  ${card} → ${id}`);
   }
