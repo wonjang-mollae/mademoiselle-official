@@ -1,0 +1,32 @@
+{
+  "checked": "2026-10-28",
+  "license": "https://www.pexels.com/license/",
+  "sources": [
+    {
+      "card": 1,
+      "author": "Jonald",
+      "url": "https://www.pexels.com/photo/interior-design-on-modern-shopping-mall-8337785/"
+    },
+    {
+      "card": 2,
+      "author": "Muharrem Alper",
+      "url": "https://www.pexels.com/photo/modern-architectural-interior-with-staircases-35173065/"
+    },
+    {
+      "card": 4,
+      "author": "Nur Yilmaz",
+      "url": "https://www.pexels.com/photo/modern-architecture-interior-with-steps-9712396/"
+    },
+    {
+      "card": 6,
+      "author": "Lies",
+      "url": "https://www.pexels.com/photo/modern-architectural-interior-with-staircase-35398581/"
+    }
+  ],
+  "ownPhotos": {
+    "3": "마드모아젤 2호점 완공사진",
+    "5": "마드모아젤 1호점 완공사진",
+    "7": "마드모아젤 2호점 완공사진"
+  },
+  "notice": "외부 사진은 브랜드 비유를 위한 참고 사진. 특정 인물·브랜드의 추천이나 제휴를 의미하지 않음."
+}
