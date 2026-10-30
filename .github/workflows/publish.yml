@@ -39,9 +39,11 @@ jobs:
             // ★ 중복 게시 차단 (2026-09-15 사고 재발 방지) — 이미 게시된 회차면 이슈 상태와 무관하게 즉시 종료.
             //    이슈 닫기가 실패해도(9/15 15:07 사례) 이 검사가 두 번째 게시를 막는다.
             if (fs.existsSync(`${dir}/published.json`)) { core.info(`${dir} 이미 게시됨(published.json 존재) — 중복 게시 차단`); return; }
-            // 오늘 생성분인지 확인
-            const today = new Date().toISOString().slice(0,10);
-            if (!dir.includes(today)) { core.info(`오늘 생성분 아님(${dir}) — 게시 안 함`); return; }
+            // 회차 날짜(KST) 가드 — 오늘 이전·당일 회차만 게시, 미래 회차는 대기 (2026-10-30: 전날 반입분이 당일 슬롯에 나가도록)
+            const todayKst = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
+            const m = dir.match(/(\d{4}-\d{2}-\d{2})/);
+            if (!m) { core.info(`회차 날짜 판독 불가(${dir}) — 게시 안 함`); return; }
+            if (m[1] > todayKst) { core.info(`미래 회차(${m[1]} > ${todayKst}) — 대기`); return; }
             // 열려 있는 publish-queue 이슈 확인 (닫힘 = 이미 게시됨/거부됨)
             const issues = await github.rest.issues.listForRepo({ ...context.repo, labels: 'publish-queue', state: 'open' });
             if (!issues.data.length) { core.info('열린 발행 이슈 없음 — 이미 처리됨'); return; }
