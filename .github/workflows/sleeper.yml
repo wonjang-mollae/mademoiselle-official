@@ -1,0 +1,68 @@
+name: 정시 게시 대기 (반입 후 회차 날짜 10:07 KST까지 대기 → 게시 디스패치)
+# 2026-10-30: 공식 저장소는 GitHub 크론이 수 시간씩 밀려(10/30 16:01 게시) 정시 게시가 안 됨.
+# 반입 감지(ingest) 직후 이 워크플로가 .last_post_dir 회차 날짜의 10:07 KST까지 기다렸다가
+# publish.yml을 직접 디스패치한다. 잡 최대 6시간 제한 때문에 5시간 단위로 자기 자신을 다시 띄워 이어서 기다린다.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: '게시 목표 시각(epoch 초). 비우면 .last_post_dir 날짜의 10:07 KST'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: publish-sleeper
+  cancel-in-progress: true
+
+jobs:
+  wait:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+      - name: 목표 시각 계산 → 대기 → 디스패치
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_IN: ${{ github.event.inputs.target }}
+        run: |
+          set -e
+          if [ ! -f .last_post_dir ]; then echo "포인터 없음 — 대기할 회차 없음"; exit 0; fi
+          DIR=$(cat .last_post_dir | tr -d '[:space:]')
+          if [ -f "$DIR/published.json" ]; then echo "$DIR 이미 게시됨 — 종료"; exit 0; fi
+          if [ -n "$TARGET_IN" ]; then
+            TARGET="$TARGET_IN"
+          else
+            KDATE=$(basename "$DIR")                       # posts/YYYY-MM-DD → 회차 날짜
+            TARGET=$(TZ=Asia/Seoul date -d "$KDATE 10:07:00" +%s)
+          fi
+          NOW=$(date -u +%s)
+          WAIT=$((TARGET - NOW))
+          echo "회차=$DIR 목표=$(TZ=Asia/Seoul date -d @$TARGET '+%F %T KST') 남은=${WAIT}s"
+          MAX=18000   # 5시간 — 잡 6시간 제한 안에서 끊고 이어가기
+          if [ "$WAIT" -gt "$MAX" ]; then
+            echo "5시간 대기 후 다시 이어감"
+            sleep "$MAX"
+            curl -sf -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/sleeper.yml/dispatches" \
+              -d "{\"ref\":\"main\",\"inputs\":{\"target\":\"${TARGET}\"}}"
+            echo "이어서 대기할 sleeper 디스패치 완료"
+            exit 0
+          fi
+          if [ "$WAIT" -gt 0 ]; then
+            echo "목표 시각까지 ${WAIT}초 대기"
+            sleep "$WAIT"
+          else
+            echo "목표 시각 지남 — 즉시 게시 디스패치"
+          fi
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/publish.yml/dispatches" \
+            -d '{"ref":"main"}'
+          echo "publish.yml 디스패치 완료"
