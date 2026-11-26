@@ -54,6 +54,8 @@ async function waitReady(containerId, tries = 60) {
     video_url: `${IMG_BASE_URL}/reel.mp4`,
     caption,
     share_to_feed: 'true',
+    // 표지: 첫 프레임이 어두우면 프로필 격자에 검게 보인다 → 지정한 시점(ms)의 화면을 표지로 쓴다
+    ...(process.env.REEL_THUMB_OFFSET_MS ? { thumb_offset: String(parseInt(process.env.REEL_THUMB_OFFSET_MS, 10) || 0) } : {}),
   });
   console.log(`  컨테이너 → ${id} (영상 처리 대기...)`);
   await waitReady(id);
